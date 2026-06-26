@@ -15,6 +15,10 @@ SOURCES = {
     'SP1.csv': f'https://www.football-data.co.uk/mmz4281/{SEASON}/SP1.csv',
     'I1.csv':  f'https://www.football-data.co.uk/mmz4281/{SEASON}/I1.csv',
     'N1.csv':  f'https://www.football-data.co.uk/mmz4281/{SEASON}/N1.csv',
+    'B1.csv':  f'https://www.football-data.co.uk/mmz4281/{SEASON}/B1.csv',
+    'TU1.csv': f'https://www.football-data.co.uk/mmz4281/{SEASON}/TU1.csv',
+    'SC1.csv': f'https://www.football-data.co.uk/mmz4281/{SEASON}/SC1.csv',
+    'G1.csv':  f'https://www.football-data.co.uk/mmz4281/{SEASON}/G1.csv',
 }
 
 def count_rows(filename):
