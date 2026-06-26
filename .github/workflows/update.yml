@@ -1,23 +1,35 @@
-name: Update Football Data
+name: Update Football Data & Daily Report
 
 on:
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 6 * * *'  # 9:00 MSK
   workflow_dispatch:
 
 jobs:
-  update:
+  update-and-report:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+      
       - run: pip install requests
-      - run: python update_data.py
-      - run: |
+      
+      - name: Update data
+        run: python update_data.py
+      
+      - name: Commit changes
+        run: |
           git config user.name "GitHub Action"
           git config user.email "action@github.com"
           git add *.csv
           git diff --staged --quiet || git commit -m "Auto update $(date +%Y-%m-%d)"
           git push
+      
+      - name: Send daily report
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python daily_values.py
