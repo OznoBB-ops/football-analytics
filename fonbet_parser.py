@@ -1,54 +1,64 @@
 import re
-import json
+import requests
 
-def parse_fonbet_html(html_content):
-    """Парсит HTML страницу Fonbet"""
+def extract_event_id(url):
+    """Извлекает ID события из URL Fonbet"""
+    match = re.search(r'/(\d{7,})(?:\?|$)', url)
+    return match.group(1) if match else None
+
+def fetch_fonbet_data(url):
+    """Получает данные события через API Fonbet"""
+    event_id = extract_event_id(url)
+    if not event_id:
+        return None
     
-    # Ищем JSON с данными в скриптах
-    json_pattern = r'window\.__INITIAL_STATE__\s*=\s*({.*?});'
-    match = re.search(json_pattern, html_content, re.DOTALL)
+    endpoints = [
+        f"https://line.fon.bet/feed/1_0/ru/Event/{event_id}.zip",
+        f"https://fon.bet/api/sports/football/events/{event_id}",
+    ]
     
-    if not match:
-        # Пробуем другой паттерн
-        json_pattern = r'"events":\s*(\[.*?\])'
-        match = re.search(json_pattern, html_content, re.DOTALL)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://fon.bet/'
+    }
     
-    if not match:
+    for endpoint in endpoints:
+        try:
+            response = requests.get(endpoint, headers=headers, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+        except:
+            continue
+    
+    return None
+
+def parse_fonbet_url(url):
+    """Парсит URL Fonbet"""
+    data = fetch_fonbet_data(url)
+    if not data:
         return None
     
     try:
-        data = json.loads(match.group(1))
-        
-        # Извлекаем команды и кэфы
-        # Структура зависит от версии сайта
         result = {
-            'home': '',
-            'away': '',
+            'home': data.get('home', {}).get('name', ''),
+            'away': data.get('away', {}).get('name', ''),
             'h_odd': None,
             'd_odd': None,
-            'a_odd': None,
-            'totals': {},
-            'foras': {}
+            'a_odd': None
         }
         
-        # Нужно адаптировать под реальную структуру данных
-        # Это заглушка - нужно проверить реальный HTML
+        markets = data.get('markets', [])
+        for market in markets:
+            if market.get('type') == 'Winner':
+                for outcome in market.get('outcomes', []):
+                    if outcome.get('type') == 'Home':
+                        result['h_odd'] = outcome.get('odd')
+                    elif outcome.get('type') == 'Draw':
+                        result['d_odd'] = outcome.get('odd')
+                    elif outcome.get('type') == 'Away':
+                        result['a_odd'] = outcome.get('odd')
         
         return result
-    except Exception as e:
-        print(f"Ошибка парсинга JSON: {e}")
+    except:
         return None
-
-def parse_fonbet_text(text):
-    """Парсит текст, скопированный с Fonbet (если возможно)"""
-    # Fonbet может давать копировать в некоторых местах
-    # Используем тот же парсер что и для Winline/GGTBET
-    from bookmaker_parser import parse_bookmaker_text
-    return parse_bookmaker_text(text)
-
-if __name__ == "__main__":
-    print("Fonbet парсер")
-    print("Варианты использования:")
-    print("1. Сохранить страницу как HTML и загрузить файл")
-    print("2. Использовать /analyze с текстом (если Fonbet даёт копировать)")
-    print("3. Отправить URL для парсинга через API")
