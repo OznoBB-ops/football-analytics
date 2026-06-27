@@ -17,7 +17,7 @@ if not TOKEN:
 bot = telebot.TeleBot(TOKEN)
 TRACKED_FILE = 'tracked.json'
 WAITING_FOR_TEXT = {}
-WAITING_FOR_BET = {}  # Состояние ожидания ввода ставки
+WAITING_FOR_BET = {}
 
 MATCHES = load_matches()
 print(f"✅ {len(MATCHES)} матчей")
@@ -62,14 +62,10 @@ def send_welcome(message):
 """
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
-# ========== P&L КОМАНДЫ ==========
-
 @bot.message_handler(commands=['bet'])
 def start_bet(message):
-    """Добавление ставки - интерактивный режим"""
     user_id = message.chat.id
     WAITING_FOR_BET[user_id] = {'step': 1}
-    
     text = """💰 *Добавление ставки*
 
 Введите данные в формате:
@@ -78,19 +74,14 @@ def start_bet(message):
 Примеры:
 `Зенит Спартак П1 2.1 300`
 `Барселона Реал ТБ 2.5 1.85 300`
-`Бавария Дортмунд Ф1(-1) 1.95 300`
 
-Или отправьте /cancel для отмены"""
-    
+/cancel — отмена"""
     bot.send_message(user_id, text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda m: WAITING_FOR_BET.get(m.chat.id, {}).get('step') == 1, content_types=['text'])
 def handle_bet_input(message):
-    """Обрабатывает ввод ставки"""
     user_id = message.chat.id
     text = message.text.strip()
-    
-    # Парсим: "Матч Тип_ставки Кэф Сумма"
     parts = text.split()
     
     if len(parts) < 4:
@@ -98,13 +89,11 @@ def handle_bet_input(message):
         return
     
     try:
-        # Последние 2 элемента - кэф и сумма
         stake = float(parts[-1])
         odds = float(parts[-2])
         bet_type = parts[-3]
         match = ' '.join(parts[:-3])
         
-        # Добавляем ставку
         bet_id = add_bet(match, bet_type, odds, stake)
         
         bot.send_message(user_id, 
@@ -112,41 +101,32 @@ def handle_bet_input(message):
             f"📋 {match}\n"
             f"💰 {bet_type} @ {odds}\n"
             f"💵 Сумма: {stake:.0f}₽\n\n"
-            f"Используйте /result {bet_id} win/lose для обновления результата")
+            f"Используйте /result {bet_id} win/lose")
         
         del WAITING_FOR_BET[user_id]
-        
     except Exception as e:
-        bot.send_message(user_id, f"❌ Ошибка: {e}\n\nПопробуйте ещё раз или /cancel")
+        bot.send_message(user_id, f"❌ Ошибка: {e}")
 
 @bot.message_handler(commands=['result'])
 def update_bet_result(message):
-    """Обновление результата ставки"""
     args = message.text.split()
-    
     if len(args) < 3:
-        bot.send_message(message.chat.id, 
-            "Использование: /result ID win/lose\n"
-            "Пример: /result 1 win")
+        bot.send_message(message.chat.id, "Использование: /result ID win/lose")
         return
-    
     try:
         bet_id = int(args[1])
         result = args[2].lower()
-        
         if result not in ('win', 'lose'):
-            bot.send_message(message.chat.id, "❌ Результат должен быть 'win' или 'lose'")
+            bot.send_message(message.chat.id, "❌ Результат: win или lose")
             return
-        
         if update_result(bet_id, result):
             stats = get_stats()
             bot.send_message(message.chat.id, 
                 f"✅ Ставка #{bet_id} обновлена!\n\n"
-                f"📊 Общая статистика:\n"
-                f"  Ставок: {stats['total_bets']}\n"
-                f"  Winrate: {stats['winrate']:.1f}%\n"
-                f"  ROI: {stats['roi']:+.1f}%\n"
-                f"  Прибыль: {stats['total_profit']:+.0f}₽")
+                f"📊 Ставок: {stats['total_bets']}\n"
+                f"Winrate: {stats['winrate']:.1f}%\n"
+                f"ROI: {stats['roi']:+.1f}%\n"
+                f"Прибыль: {stats['total_profit']:+.0f}₽")
         else:
             bot.send_message(message.chat.id, f"❌ Ставка #{bet_id} не найдена")
     except ValueError:
@@ -154,31 +134,23 @@ def update_bet_result(message):
 
 @bot.message_handler(commands=['pending'])
 def show_pending(message):
-    """Показать активные ставки"""
     pending = get_pending_bets()
-    
     if not pending:
         bot.send_message(message.chat.id, "⏳ Нет активных ставок")
         return
-    
     text = "⏳ *Активные ставки:*\n\n"
     for bet in pending:
         text += f"#{bet['id']} {bet['match']}\n"
         text += f"  {bet['bet_type']} @ {bet['odds']} | {bet['stake']:.0f}₽\n"
         text += f"  📅 {bet['date']}\n\n"
-    
-    text += "Используйте /result ID win/lose для обновления"
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['stats'])
 def show_stats(message):
-    """Показать статистику"""
     stats = get_stats()
-    
     if stats['total_bets'] == 0:
-        bot.send_message(message.chat.id, "📊 Нет ставок. Используйте /bet для добавления")
+        bot.send_message(message.chat.id, "📊 Нет ставок. Используйте /bet")
         return
-    
     text = f"""📊 *Статистика*
 
 Всего ставок: {stats['total_bets']}
@@ -190,18 +162,14 @@ Winrate: {stats['winrate']:.1f}%
 ROI: {stats['roi']:+.1f}%
 Оборот: {stats['total_stake']:.0f}₽
 Прибыль: {stats['total_profit']:+.0f}₽"""
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['history'])
 def show_history(message):
-    """Показать историю ставок"""
     history = get_history(limit=15)
-    
     if not history:
         bot.send_message(message.chat.id, "📋 История пуста")
         return
-    
     text = "📋 *Последние 15 ставок:*\n\n"
     for bet in reversed(history):
         status = "✓" if bet['status'] == 'won' else "✗" if bet['status'] == 'lost' else "⏳"
@@ -209,10 +177,7 @@ def show_history(message):
         text += f"{status} #{bet['id']} {bet['match']}\n"
         text += f"  {bet['bet_type']} @ {bet['odds']} | {bet['stake']:.0f}₽ | {profit_str}\n"
         text += f"  📅 {bet['date']}\n\n"
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
-
-# ========== ОСТАЛЬНЫЕ КОМАНДЫ ==========
 
 @bot.message_handler(commands=['analyze'])
 def start_analyze(message):
@@ -220,8 +185,6 @@ def start_analyze(message):
     bot.send_message(message.chat.id,
         "📋 *Режим анализа БК*\n\n"
         "Пришли текст со страницы БК.\n"
-        "Парсю: 1X2, тоталы, форы, ОЗ\n"
-        "+ экспрессы и системы\n\n"
         "❌ Отмена: /cancel",
         parse_mode='Markdown')
 
@@ -235,20 +198,16 @@ def cancel_analyze(message):
 @bot.message_handler(func=lambda m: WAITING_FOR_TEXT.get(m.chat.id, False), content_types=['text'])
 def handle_bookmaker_text(message):
     matches = parse_bookmaker_text(message.text)
-    
     if not matches:
         bot.send_message(message.chat.id, "❌ Не удалось распознать матчи")
         WAITING_FOR_TEXT.pop(message.chat.id, None)
         return
-    
     saved = save_to_base(matches)
     analyses = [analyze_match(m, MATCHES, PATTERNS) for m in matches]
     express_list = generate_express(analyses, min_matches=2, max_matches=4) if len(analyses) >= 2 else None
     systems_list = generate_systems(analyses) if len(analyses) >= 3 else None
-    
     result = format_for_telegram(analyses, express_list, systems_list)
     result = f"📋 <b>{len(matches)} матчей</b> (сохранено: {saved})\n\n" + result
-    
     if len(result) > 4000:
         parts = result.split('\n\n')
         current = ""
@@ -262,7 +221,6 @@ def handle_bookmaker_text(message):
             bot.send_message(message.chat.id, current, parse_mode='HTML')
     else:
         bot.send_message(message.chat.id, result, parse_mode='HTML')
-    
     WAITING_FOR_TEXT.pop(message.chat.id, None)
 
 @bot.message_handler(commands=['track'])
@@ -344,7 +302,6 @@ def search_match(message):
     totals = [m['total'] for m in h2h]
     over25 = sum(1 for t in totals if t > 2.5) / total * 100
     btts = sum(1 for m in h2h if m['hg']>0 and m['ag']>0) / total * 100
-    
     text = f"🔍 *{translate_team(h2h[0]['home'])} vs {translate_team(h2h[0]['away'])}*\n"
     text += f"Встреч: {total}\n"
     text += f"📊 П1: {hw/total*100:.0f}% ({hw}) | Х: {dr/total*100:.0f}% ({dr}) | П2: {aw/total*100:.0f}% ({aw})\n"
