@@ -2,3 +2,7 @@ streamlit
 matplotlib
 python-dotenv
 python-dotenv
+streamlit
+pandas
+matplotlib
+requests
