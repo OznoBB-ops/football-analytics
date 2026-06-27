@@ -6,8 +6,13 @@ from datetime import datetime
 import os
 import json
 
+# Импорты на верхнем уровне
+from recommendations import load_matches, find_patterns, analyze_team_form
+from pnl_tracker import load_pnl as load_pnl_data, get_stats
+from teams_ru import translate_team
+
 # Пароль для защиты
-PASSWORD = "football2024"  # Измени на свой пароль
+PASSWORD = "football2024"
 
 # Проверка авторизации
 if 'authenticated' not in st.session_state:
@@ -39,29 +44,26 @@ page = st.sidebar.radio("Выберите раздел:", [
     "📋 Команды"
 ])
 
-# Загрузка данных
+# Загрузка данных с кешированием
 @st.cache_data
-def load_matches():
-    from recommendations import load_matches
+def get_matches():
     return load_matches()
 
 @st.cache_data
-def load_patterns():
-    from recommendations import find_patterns
-    matches = load_matches()
+def get_patterns():
+    matches = get_matches()
     return find_patterns(matches, min_sample=30, min_edge=10)
 
 @st.cache_data
-def load_pnl():
-    from pnl_tracker import load_pnl as load_pnl_data
+def get_pnl():
     return load_pnl_data()
 
 # Главная страница
 if page == "🏠 Главная":
     st.header("🏠 Главная")
     
-    matches = load_matches()
-    patterns = load_patterns()
+    matches = get_matches()
+    patterns = get_patterns()
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -91,7 +93,7 @@ if page == "🏠 Главная":
 elif page == "🔍 Поиск матча":
     st.header("🔍 Поиск матча")
     
-    matches = load_matches()
+    matches = get_matches()
     
     col1, col2 = st.columns(2)
     with col1:
@@ -100,8 +102,6 @@ elif page == "🔍 Поиск матча":
         away = st.text_input("Команда 2", placeholder="Спартак")
     
     if home and away:
-        from teams_ru import translate_team
-        
         h2h = []
         for m in matches:
             home_in = home.lower() in m['home_lower'] or home.lower() in m['away_lower']
@@ -145,7 +145,7 @@ elif page == "🔍 Поиск матча":
 elif page == "💰 Валуйные ставки":
     st.header("💰 Валуйные ставки")
     
-    patterns = load_patterns()
+    patterns = get_patterns()
     
     st.subheader("🎯 1X2 (П1/Ничья/П2)")
     df_1x2 = pd.DataFrame([
@@ -192,14 +192,12 @@ elif page == "💰 Валуйные ставки":
 elif page == "💵 Мои ставки (P&L)":
     st.header("💵 Мои ставки (P&L)")
     
-    pnl_data = load_pnl()
+    pnl_data = get_pnl()
     bets = pnl_data['bets']
     
     if not bets:
         st.info("Нет ставок. Используйте Telegram-бот для добавления ставок.")
     else:
-        # Статистика
-        from pnl_tracker import get_stats
         stats = get_stats()
         
         col1, col2, col3, col4 = st.columns(4)
@@ -264,7 +262,7 @@ elif page == "💵 Мои ставки (P&L)":
 elif page == "📈 Статистика":
     st.header("📈 Статистика")
     
-    matches = load_matches()
+    matches = get_matches()
     
     st.subheader("📊 Распределение тоталов")
     
@@ -298,14 +296,11 @@ elif page == "📈 Статистика":
 elif page == "📋 Команды":
     st.header("📋 Команды")
     
-    matches = load_matches()
+    matches = get_matches()
     
     team = st.text_input("Введите название команды", placeholder="Зенит")
     
     if team:
-        from recommendations import analyze_team_form
-        from teams_ru import translate_team
-        
         form = analyze_team_form(matches, team, last_n=10)
         
         if form:
@@ -327,4 +322,4 @@ elif page == "📋 Команды":
 
 # Футер
 st.markdown("---")
-st.markdown("🤖 [Telegram-бот](https://t.me/your_bot) | 📧 [Email](mailto:oznobb@yandex.ru)")
+st.markdown("🤖 Telegram-бот | 📧 oznobb@yandex.ru")
