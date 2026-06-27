@@ -6,6 +6,7 @@ from teams_ru import translate_team
 from bookmaker_parser import parse_bookmaker_text, save_to_base, analyze_match, format_for_telegram, generate_express, generate_systems
 from recommendations import load_matches, find_patterns
 from pnl_tracker import add_bet, update_result, get_stats, get_history, get_pending_bets
+from daily_digest import generate_daily_digest, format_digest
 
 load_dotenv()
 
@@ -49,6 +50,9 @@ def send_welcome(message):
 /stats — статистика
 /history — история ставок
 
+🎯 *Дайджест:*
+/digest — топ-3 матча на день
+
 🔍 *Поиск матча:*
 Напиши две команды: `Зенит Спартак`
 
@@ -61,6 +65,13 @@ def send_welcome(message):
 /values — валуйные паттерны
 """
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
+
+@bot.message_handler(commands=['digest'])
+def send_daily_digest(message):
+    """Отправляет дневной дайджест"""
+    recs = generate_daily_digest()
+    digest = format_digest(recs)
+    bot.send_message(message.chat.id, digest, parse_mode='Markdown')
 
 @bot.message_handler(commands=['bet'])
 def start_bet(message):

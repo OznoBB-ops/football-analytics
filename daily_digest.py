@@ -37,29 +37,21 @@ def analyze_odds(m):
         return None
     
     h, d, a = m['h_odd'], m['d_odd'], m['a_odd']
-    
-    # Маржа БК
     inv = 1/h + 1/d + 1/a
     margin = (inv - 1) * 100
-    
-    # Fair probabilities (без маржи)
     fair_h = (1/h/inv) * 100
     fair_d = (1/d/inv) * 100
     fair_a = (1/a/inv) * 100
     
-    # Определяем фаворита
     if fair_h > 55:
         favorite = 'П1'
         fav_prob = fair_h
-        fav_odd = h
     elif fair_a > 55:
         favorite = 'П2'
         fav_prob = fair_a
-        fav_odd = a
     else:
         favorite = None
         fav_prob = 0
-        fav_odd = 0
     
     return {
         'margin': margin,
@@ -67,8 +59,7 @@ def analyze_odds(m):
         'fair_d': fair_d,
         'fair_a': fair_a,
         'favorite': favorite,
-        'fav_prob': fav_prob,
-        'fav_odd': fav_odd
+        'fav_prob': fav_prob
     }
 
 def generate_daily_digest():
@@ -85,23 +76,22 @@ def generate_daily_digest():
     for m in live_matches:
         score = 0
         reasons = []
+        from_base = False
         
-        # 1. Анализ кэфов (всегда работает)
+        # 1. Анализ кэфов
         odds_analysis = analyze_odds(m)
         if odds_analysis:
-            # Большая маржа = больше шансов на валуй
             if odds_analysis['margin'] > 12:
                 score += 10
                 reasons.append(f"💸 Маржа БК: {odds_analysis['margin']:.1f}%")
-            
-            # Явный фаворит
             if odds_analysis['favorite']:
                 score += 15
                 reasons.append(f"👑 Фаворит: {odds_analysis['favorite']} ({odds_analysis['fav_prob']:.0f}%)")
         
-        # 2. Паттерны из базы (если кэфы совпадают с историческими)
+        # 2. Паттерны из базы
         found = check_patterns(m, patterns)
         for p in found[:2]:
+            from_base = True
             if p['type'] == '1X2':
                 score += min(40, p['roi'] * 2)
                 reasons.append(f"💰 {p['bet']} @ {p['odds']:.2f} (ROI {p['roi']:+.0f}%)")
@@ -112,16 +102,13 @@ def generate_daily_digest():
                 score += min(35, p['roi'] * 1.5)
                 reasons.append(f"⚽ {p['bet']} ({p['real']:.0f}%)")
         
-        # 3. Прогноз на основе кэфов
+        # 3. Прогноз
         predictions = None
         if odds_analysis:
-            # Используем fair odds как приближение к прогнозу
             predictions = {
                 'П1': odds_analysis['fair_h'],
                 'Х': odds_analysis['fair_d'],
-                'П2': odds_analysis['fair_a'],
-                'ТБ 2.5': 50,  # по умолчанию
-                'ОЗ Да': 50
+                'П2': odds_analysis['fair_a']
             }
         
         recommendations.append({
@@ -132,12 +119,10 @@ def generate_daily_digest():
             'reasons': reasons[:3] if reasons else ["📋 Стандартный матч"],
             'predictions': predictions,
             'odds': {'h': m['h_odd'], 'd': m['d_odd'], 'a': m['a_odd']},
-            'margin': odds_analysis['margin'] if odds_analysis else 0
+            'from_base': from_base
         })
     
-    # Сортируем: сначала по score, потом по марже
-    recommendations.sort(key=lambda x: (x['score'], x['margin']), reverse=True)
-    
+    recommendations.sort(key=lambda x: x['score'], reverse=True)
     return recommendations[:3]
 
 def format_digest(recommendations):
@@ -162,6 +147,10 @@ def format_digest(recommendations):
             lines.append(f"🎯 Fair: П1 {pred['П1']:.0f}% | Х {pred['Х']:.0f}% | П2 {pred['П2']:.0f}%")
         
         lines.append(f"📊 Score: {rec['score']}")
+        
+        # Предупреждение если не из базы
+        if not rec['from_base']:
+            lines.append("⚠️ _Матч не проанализирован через базу_")
         
         # Анализ
         if rec['reasons']:
