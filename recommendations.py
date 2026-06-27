@@ -203,3 +203,27 @@ if __name__ == "__main__":
     patterns = find_patterns(matches, min_sample=30, min_edge=10)
     total = len(patterns['1X2']) + len(patterns['totals']) + len(patterns['btts'])
     print(f"✅ {total} паттернов (1X2: {len(patterns['1X2'])}, Тоталы: {len(patterns['totals'])}, ОЗ: {len(patterns['btts'])})")
+
+def get_strategy_for_league(league):
+    """Возвращает стратегию для лиги"""
+    # Лиги, где работают паттерны по кэфам
+    pattern_leagues = ['FIN', 'POL', 'TU1', 'SC1', 'B1', 'G1', 'P1']
+    
+    if league in pattern_leagues:
+        return 'patterns'
+    else:
+        return 'xg'
+
+def analyze_match_smart(match, all_matches, patterns=None):
+    """Умный анализ — выбирает стратегию в зависимости от лиги"""
+    league = match['league']
+    strategy = get_strategy_for_league(league)
+    
+    if strategy == 'patterns' and patterns:
+        # Используем паттерны
+        from bookmaker_parser import analyze_match
+        return analyze_match(match, all_matches, patterns)
+    else:
+        # Используем xG-стратегию
+        from xg_strategy import analyze_match_xg
+        return analyze_match_xg(match, all_matches)
