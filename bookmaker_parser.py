@@ -6,9 +6,9 @@ from itertools import combinations
 from teams_ru import translate_team
 from predictor import calculate_expected_goals, predict_exact_scores, predict_outcomes, find_value_bets
 
-JUNK_PATTERNS = [
+JUNK = [
     r'^(Live|Основные|Все|Загрузить|Футбол|Теннис|Баскетбол|Хоккей|Киберспорт|Кибер FIFA|Кибер NBA|Кибер NHL|Настольный теннис|Волейбол|Падел|Австралийский футбол|Баскетбол 3x3|Бейсбол|Гандбол|Пляжный волейбол|Регби|Футзал)$',
-    r'^(Winline|Удобнее в приложении|Winline в iOS и Android)$',
+    r'^(Winline|GGTBET|GGTBET\.com|GGTVER|Удобнее в приложении|Winline в iOS и Android)$',
 ]
 
 COUNTRIES = ['Австралия', 'Россия', 'Англия', 'Испания', 'Германия', 'Италия', 
@@ -17,141 +17,188 @@ COUNTRIES = ['Австралия', 'Россия', 'Англия', 'Испани
              'Аргентина', 'Мексика', 'США', 'Япония', 'Китай', 'Корея']
 
 def is_junk(line):
-    line = line.strip()
-    for pattern in JUNK_PATTERNS:
-        if re.match(pattern, line, re.IGNORECASE):
+    for p in JUNK:
+        if re.match(p, line.strip(), re.IGNORECASE):
             return True
     return False
 
-def is_score_or_status(line):
+def is_status(line):
+    """Статус матча: 1Т 33', +69, Пер., Итог"""
     line = line.strip()
     if line in ('-', 'Пер.', 'Итог'):
         return True
-    if re.match(r'^\dТ \d+\'?$', line):
+    if re.match(r'^\dТ \d+', line):
         return True
     if re.match(r'^\+\d+$', line):
         return True
-    try:
-        int(line)
-        return True
-    except:
-        pass
     return False
 
-def is_odds(val):
+def is_score(line):
+    """Слитные счёта (10, 00, 21) и маленькие числа"""
+    line = line.strip()
+    if re.match(r'^\d{2}$', line):
+        return True
     try:
-        v = float(val.replace(',', '.'))
+        v = int(line)
+        return 0 <= v <= 9
+    except:
+        return False
+
+def is_odds(val):
+    """Настоящий кэф — с точкой, 1.01-100"""
+    val = val.strip().replace(',', '.')
+    try:
+        v = float(val)
+        if '.' not in val and v >= 10:
+            return False
         return 1.01 <= v <= 100
     except:
         return False
 
+def is_total_line(line):
+    """М3.5Б, Б2.5М, ТБ2.5, ТМ1.5"""
+    line = line.strip()
+    m = re.match(r'^([МБТ])(\d+\.?\d*)([МБ]?)$', line)
+    if m:
+        return m.group(1), float(m.group(2)), m.group(3)
+    return None
+
+def is_league(line):
+    """Лига содержит запятую или слова Лига/Премьер/Кубок/Дивизион"""
+    line = line.strip()
+    if ',' in line:
+        return True
+    if any(w in line for w in ['Лига', 'Премьер', 'Кубок', 'Дивизион', 'Серия', 'Чемпионат']):
+        return True
+    return False
+
+def is_team_name(line):
+    """Название команды"""
+    line = line.strip()
+    if not line or len(line) < 3:
+        return False
+    if is_status(line) or is_score(line) or is_odds(line) or is_total_line(line):
+        return False
+    if re.match(r'^\d+$', line):
+        return False
+    if line in ('1', '2'):
+        return False
+    return True
+
 def parse_bookmaker_text(text):
+    """Парсер: разбивает текст на блоки по статусам матчей"""
     matches = []
     lines = [l.strip() for l in text.split('\n') if l.strip()]
     lines = [l for l in lines if not is_junk(l)]
     
-    i = 0
-    while i < len(lines) - 2:
-        if is_odds(lines[i]) and is_odds(lines[i+1]) and is_odds(lines[i+2]):
-            h_odd = float(lines[i].replace(',', '.'))
-            d_odd = float(lines[i+1].replace(',', '.'))
-            a_odd = float(lines[i+2].replace(',', '.'))
-            
-            j = i - 1
-            while j >= 0 and is_score_or_status(lines[j]):
-                j -= 1
-            
-            if j >= 2:
-                away = lines[j]
-                home = lines[j-1]
-                
-                league_idx = j - 2
-                if league_idx >= 0 and lines[league_idx] in ('1', '2'):
-                    league_idx -= 1
-                
-                league = lines[league_idx] if league_idx >= 0 else ''
-                league_clean = league
-                for country in COUNTRIES:
-                    league_clean = league_clean.replace(country, '').strip().rstrip(',')
-                
-                if (home and away and league_clean and 
-                    len(home) >= 3 and len(away) >= 3 and
-                    home != away and
-                    not re.match(r'^\d+$', home) and
-                    not re.match(r'^\d+$', away)):
-                    
-                    extra_markets = parse_extra_markets(lines, i+3)
-                    
-                    matches.append({
-                        'home': home, 'away': away,
-                        'h_odd': h_odd, 'd_odd': d_odd, 'a_odd': a_odd,
-                        'league': league_clean,
-                        'date': datetime.now().strftime('%d.%m.%Y'),
-                        'time': datetime.now().strftime('%H:%M'),
-                        'markets': extra_markets
-                    })
-            
-            i += 3
+    # Разбиваем на блоки по статусам матчей
+    # Блок = всё между двумя статусами (или от начала до статуса, от статуса до конца)
+    blocks = []
+    current_block = []
+    
+    for line in lines:
+        current_block.append(line)
+        if is_status(line):
+            blocks.append(current_block)
+            current_block = []
+    
+    if current_block:
+        blocks.append(current_block)
+    
+    # Парсим каждый блок
+    for block in blocks:
+        if len(block) < 3:
             continue
         
-        i += 1
+        # Ищем в блоке: [лига?] [1/2?] команда1 команда2 [счёт...] [кэфы...]
+        teams = []
+        odds = []
+        totals = {}
+        league = 'N/A'
+        
+        i = 0
+        # Пропускаем статусы в начале блока (они от предыдущего матча)
+        while i < len(block) and is_status(block[i]):
+            i += 1
+        
+        # Ищем лигу (если есть)
+        if i < len(block) and is_league(block[i]):
+            league = block[i]
+            for c in COUNTRIES:
+                league = league.replace(c, '').strip().rstrip(',')
+            i += 1
+        
+        # Пропускаем маркер "1" или "2"
+        if i < len(block) and block[i] in ('1', '2'):
+            i += 1
+        
+        # Ищем две команды подряд
+        while i < len(block) - 1 and len(teams) < 2:
+            if is_team_name(block[i]) and is_team_name(block[i+1]):
+                teams = [block[i], block[i+1]]
+                i += 2
+                break
+            i += 1
+        
+        if len(teams) != 2:
+            continue
+        
+        # Парсим остальное: счёта, кэфы, тоталы
+        while i < len(block):
+            line = block[i]
+            
+            # Статус — конец блока
+            if is_status(line):
+                break
+            
+            # Тотал М3.5Б
+            total_info = is_total_line(line)
+            if total_info:
+                prefix, value, suffix = total_info
+                if i+1 < len(block) and is_odds(block[i+1]):
+                    odd = float(block[i+1].replace(',', '.'))
+                    key = str(value)
+                    if key not in totals:
+                        totals[key] = {}
+                    if prefix == 'М' or suffix == 'М':
+                        totals[key]['under'] = odd
+                    elif prefix == 'Б' or suffix == 'Б':
+                        totals[key]['over'] = odd
+                    i += 2
+                    continue
+            
+            # Кэф
+            if is_odds(line):
+                odds.append(float(line.replace(',', '.')))
+                i += 1
+                continue
+            
+            # Счёт или прочерк — пропускаем
+            if is_score(line) or line == '-':
+                i += 1
+                continue
+            
+            i += 1
+        
+        # Определяем кэфы 1X2
+        h_odd = d_odd = a_odd = None
+        if len(odds) >= 3:
+            h_odd, d_odd, a_odd = odds[0], odds[1], odds[2]
+        elif len(odds) == 1:
+            h_odd = odds[0]
+        
+        home, away = teams
+        
+        matches.append({
+            'home': home, 'away': away,
+            'h_odd': h_odd, 'd_odd': d_odd, 'a_odd': a_odd,
+            'league': league,
+            'date': datetime.now().strftime('%d.%m.%Y'),
+            'time': datetime.now().strftime('%H:%M'),
+            'markets': {'totals': totals, 'foras': {}, 'btts': {}, 'exact_scores': {}}
+        })
     
     return matches
-
-def parse_extra_markets(lines, start_idx):
-    markets = {'totals': {}, 'foras': {}, 'btts': {}, 'exact_scores': {}}
-    
-    i = start_idx
-    limit = min(start_idx + 50, len(lines))
-    
-    while i < limit - 1:
-        line = lines[i].strip()
-        
-        if 'Тотал' in line or 'Total' in line:
-            match = re.search(r'(\d+\.5)', line)
-            if match:
-                total_val = match.group(1)
-                if i+2 < len(lines) and is_odds(lines[i+1]) and is_odds(lines[i+2]):
-                    over = float(lines[i+1].replace(',', '.'))
-                    under = float(lines[i+2].replace(',', '.'))
-                    markets['totals'][total_val] = {'over': over, 'under': under}
-                    i += 3
-                    continue
-        elif 'Фора' in line or 'F1' in line or 'Ф1' in line:
-            match = re.search(r'([+-]?\d+\.?\d*)', line)
-            if match:
-                handicap = match.group(1)
-                if i+2 < len(lines) and is_odds(lines[i+1]) and is_odds(lines[i+2]):
-                    f1 = float(lines[i+1].replace(',', '.'))
-                    f2 = float(lines[i+2].replace(',', '.'))
-                    markets['foras'][handicap] = {'f1': f1, 'f2': f2}
-                    i += 3
-                    continue
-        elif 'Обе забьют' in line or 'ОЗ' in line:
-            if i+2 < len(lines) and is_odds(lines[i+1]) and is_odds(lines[i+2]):
-                yes = float(lines[i+1].replace(',', '.'))
-                no = float(lines[i+2].replace(',', '.'))
-                markets['btts'] = {'yes': yes, 'no': no}
-                i += 3
-                continue
-        elif 'Точный счёт' in line or 'Точный счет' in line:
-            # Парсим точные счёты: 1:0, 2:1, 0:0 и т.д.
-            j = i + 1
-            while j < limit - 1:
-                score_match = re.match(r'^(\d):(\d)$', lines[j])
-                if score_match and j+1 < limit and is_odds(lines[j+1]):
-                    score = lines[j]
-                    odd = float(lines[j+1].replace(',', '.'))
-                    markets['exact_scores'][score] = odd
-                    j += 2
-                else:
-                    break
-            i = j
-            continue
-        
-        i += 1
-    
-    return markets
 
 def save_to_base(matches, filename='live_matches.csv'):
     file_exists = os.path.exists(filename) and os.path.getsize(filename) > 0
@@ -198,22 +245,15 @@ def analyze_match(match, all_matches, patterns):
     if home_in_base and away_in_base:
         result['h2h'] = analyze_h2h(all_matches, home_in_base, away_in_base)
     
-    # xG и предсказания
     if form_home or form_away:
         xg = calculate_expected_goals(form_home, form_away, result['h2h'])
         result['xg'] = xg
-        
         predictions = predict_outcomes(xg['home_xg'], xg['away_xg'])
         result['predictions'] = predictions
+        result['exact_scores'] = predict_exact_scores(xg['home_xg'], xg['away_xg'])[:5]
         
-        exact_scores = predict_exact_scores(xg['home_xg'], xg['away_xg'])
-        result['exact_scores'] = exact_scores[:5]
-        
-        # Валуйные ставки
         market_odds = {
-            'h_odd': match['h_odd'],
-            'd_odd': match['d_odd'],
-            'a_odd': match['a_odd'],
+            'h_odd': match['h_odd'], 'd_odd': match['d_odd'], 'a_odd': match['a_odd'],
             'markets': match.get('markets', {})
         }
         result['value_bets'] = find_value_bets(predictions, market_odds)
@@ -230,8 +270,7 @@ def analyze_match(match, all_matches, patterns):
     found = check_patterns(synthetic, patterns)
     recs = []
     
-    # Валуйные ставки из предсказаний
-    for vb in result['value_bets'][:3]:
+    for vb in result.get('value_bets', [])[:3]:
         recs.append({
             'bet': vb['bet'],
             'reason': f"🎯 Edge {vb['edge']:+.0f}% (fair {vb['fair_odd']:.2f})",
@@ -239,7 +278,6 @@ def analyze_match(match, all_matches, patterns):
             'odd': float(vb['bet'].split('@')[1].strip())
         })
     
-    # Паттерны из базы
     for p in found[:2]:
         if p['type'] == '1X2':
             recs.append({'bet': f"{p['bet']} @ {p['odds']:.2f}", 'reason': f"💰 ROI {p['roi']:+.0f}%", 'score': min(40, p['roi'] * 2), 'odd': p['odds']})
@@ -248,28 +286,26 @@ def analyze_match(match, all_matches, patterns):
         elif p['type'] == 'btts':
             recs.append({'bet': p['bet'], 'reason': f"📊 {p['real']:.0f}%", 'score': min(35, p['roi'] * 1.5), 'odd': 1.9})
     
-    # Точный счёт из парсера
+    if result.get('form_home') and result['form_home']['winrate'] > 60:
+        recs.append({'bet': f"П1 @ {match['h_odd']:.2f}" if match['h_odd'] else "П1", 'reason': f"🏠 Форма {result['form_home']['winrate']:.0f}%", 'score': 20, 'odd': match['h_odd'] or 1.5})
+    if result.get('form_away') and result['form_away']['winrate'] > 60:
+        recs.append({'bet': f"П2 @ {match['a_odd']:.2f}" if match['a_odd'] else "П2", 'reason': f"✈️ Форма {result['form_away']['winrate']:.0f}%", 'score': 20, 'odd': match['a_odd'] or 1.5})
+    
     markets = match.get('markets', {})
-    if result.get('exact_scores') and markets.get('exact_scores'):
-        for score, data in result['exact_scores'][:2]:
-            if score in markets['exact_scores']:
-                bk_odd = markets['exact_scores'][score]
-                fair_odd = 100 / data['probability'] if data['probability'] > 0 else 0
-                if bk_odd > fair_odd * 1.1:
-                    recs.append({
-                        'bet': f"Точный счёт {score} @ {bk_odd:.2f}",
-                        'reason': f"🎯 Вер-ть {data['probability']:.1f}%",
-                        'score': 30,
-                        'odd': bk_odd
-                    })
+    if result.get('h2h'):
+        if '2.5' in markets.get('totals', {}):
+            t = markets['totals']['2.5']
+            if result['h2h']['over25_pct'] > 65 and 'over' in t:
+                recs.append({'bet': f"ТБ 2.5 @ {t['over']:.2f}", 'reason': f"⚔️ H2H ТБ {result['h2h']['over25_pct']:.0f}%", 'score': 25, 'odd': t['over']})
+            elif result['h2h']['over25_pct'] < 40 and 'under' in t:
+                recs.append({'bet': f"ТМ 2.5 @ {t['under']:.2f}", 'reason': f"⚔️ H2H ТМ {100-result['h2h']['over25_pct']:.0f}%", 'score': 25, 'odd': t['under']})
     
     recs.sort(key=lambda x: x['score'], reverse=True)
     result['recommendations'] = recs[:5]
     return result
 
-def generate_express(analyses, min_matches=2, max_matches=5):
+def generate_express(analyses, min_matches=2, max_matches=4):
     express_candidates = []
-    
     for a in analyses:
         if a['recommendations']:
             best = a['recommendations'][0]
@@ -285,25 +321,18 @@ def generate_express(analyses, min_matches=2, max_matches=5):
         return []
     
     express_list = []
-    
     for size in range(min_matches, min(max_matches+1, len(express_candidates)+1)):
         sorted_cands = sorted(express_candidates, key=lambda x: x['score'], reverse=True)[:size+3]
-        
         for combo in combinations(sorted_cands, size):
             total_odd = 1
             total_score = 0
             for c in combo:
                 total_odd *= c['odd']
                 total_score += c['score']
-            
             avg_score = total_score / size
-            if avg_score >= 30:
-                risk = "🟢 Умеренный"
-            elif avg_score >= 20:
-                risk = "🟡 Средний"
-            else:
-                risk = "🔴 Высокий"
-            
+            if avg_score >= 30: risk = "🟢 Умеренный"
+            elif avg_score >= 20: risk = "🟡 Средний"
+            else: risk = "🔴 Высокий"
             express_list.append({
                 'matches': [c['match'] for c in combo],
                 'bets': [c['bet'] for c in combo],
@@ -314,7 +343,7 @@ def generate_express(analyses, min_matches=2, max_matches=5):
             })
     
     express_list.sort(key=lambda x: (x['total_odd'] * x['avg_score'] / 100), reverse=True)
-    return express_list[:5]
+    return express_list[:3]
 
 def generate_systems(analyses):
     candidates = []
@@ -336,15 +365,11 @@ def generate_systems(analyses):
     system_configs = [(2, 3), (2, 4), (3, 4), (3, 5), (4, 5)]
     
     for k, m in system_configs:
-        if m > n:
-            continue
-        
+        if m > n: continue
         top_m = sorted(candidates, key=lambda x: x['score'], reverse=True)[:m]
-        
         total_combos = 0
         total_cost = 0
         total_payout = 0
-        
         for combo in combinations(top_m, k):
             total_combos += 1
             combo_odd = 1
@@ -352,10 +377,8 @@ def generate_systems(analyses):
                 combo_odd *= c['odd']
             total_cost += 1
             total_payout += combo_odd
-        
         avg_odd_per_combo = total_payout / total_combos
         expected_roi = (avg_odd_per_combo - total_combos) / total_combos * 100
-        
         systems.append({
             'name': f"Система {k} из {m}",
             'events': [c['match'] for c in top_m],
@@ -383,38 +406,43 @@ def format_for_telegram(analyses, express_list=None, systems_list=None):
         home_ru = translate_team(m['home'])
         away_ru = translate_team(m['away'])
         
-        inv = 1/m['h_odd'] + 1/m['d_odd'] + 1/m['a_odd']
-        margin = (inv - 1) * 100
-        fh = (1/m['h_odd']/inv)*100
-        fd = (1/m['d_odd']/inv)*100
-        fa = (1/m['a_odd']/inv)*100
-        
         lines.append(f"<b>{i}. {home_ru} vs {away_ru}</b>")
-        lines.append(f"🏆 {m['league']}")
-        lines.append(f"💰 П1: {m['h_odd']:.2f} | Х: {m['d_odd']:.2f} | П2: {m['a_odd']:.2f} | Маржа: {margin:.1f}%")
-        lines.append(f"🎯 Fair: П1 {fh:.0f}% | Х {fd:.0f}% | П2 {fa:.0f}%")
+        if m['league'] and m['league'] != 'N/A':
+            lines.append(f"🏆 {m['league']}")
         
-        # xG
+        if m['h_odd'] and m['d_odd'] and m['a_odd']:
+            inv = 1/m['h_odd'] + 1/m['d_odd'] + 1/m['a_odd']
+            margin = (inv - 1) * 100
+            fh = (1/m['h_odd']/inv)*100
+            fd = (1/m['d_odd']/inv)*100
+            fa = (1/m['a_odd']/inv)*100
+            lines.append(f"💰 П1: {m['h_odd']:.2f} | Х: {m['d_odd']:.2f} | П2: {m['a_odd']:.2f} | Маржа: {margin:.1f}%")
+            lines.append(f"🎯 Fair: П1 {fh:.0f}% | Х {fd:.0f}% | П2 {fa:.0f}%")
+        elif m['h_odd']:
+            lines.append(f"💰 Кэф: {m['h_odd']:.2f}")
+        
         if a.get('xg'):
             xg = a['xg']
             lines.append(f"⚽ <b>xG:</b> {xg['home_xg']} - {xg['away_xg']} (Тотал: {xg['total_xg']})")
         
-        # Предсказания
         if a.get('predictions'):
             pred = a['predictions']
             lines.append(f"📊 Прогноз: П1 {pred['П1']:.0f}% | Х {pred['Х']:.0f}% | П2 {pred['П2']:.0f}%")
             lines.append(f"📈 ТБ 2.5: {pred['ТБ 2.5']:.0f}% | ОЗ: {pred['ОЗ Да']:.0f}%")
         
-        # Точные счёты
         if a.get('exact_scores'):
             scores_str = " | ".join([f"{s}: {d['probability']:.0f}%" for s, d in a['exact_scores'][:3]])
             lines.append(f"🎯 Точный счёт: {scores_str}")
         
-        # Рынки из парсера
         markets = m.get('markets', {})
         if markets.get('totals'):
-            totals_str = " | ".join([f"Т{v}: ТБ {d['over']:.2f}/ТМ {d['under']:.2f}" for v, d in list(markets['totals'].items())[:2]])
-            lines.append(f"📊 Тоталы: {totals_str}")
+            parts = []
+            for v, d in list(markets['totals'].items())[:2]:
+                over_s = f"ТБ {d.get('over', 0):.2f}" if 'over' in d else ""
+                under_s = f"ТМ {d.get('under', 0):.2f}" if 'under' in d else ""
+                parts.append(f"Т{v}: {'/'.join(filter(None, [over_s, under_s]))}")
+            if parts:
+                lines.append(f"📊 Тоталы: {' | '.join(parts)}")
         
         if markets.get('foras'):
             foras_str = " | ".join([f"Ф{k}: {d['f1']:.2f}/{d['f2']:.2f}" for k, d in list(markets['foras'].items())[:2]])
@@ -422,7 +450,7 @@ def format_for_telegram(analyses, express_list=None, systems_list=None):
         
         if markets.get('btts'):
             btts = markets['btts']
-            lines.append(f"⚽ ОЗ: Да {btts['yes']:.2f} / Нет {btts['no']:.2f}")
+            lines.append(f"⚽ ОЗ: Да {btts.get('yes', 0):.2f} / Нет {btts.get('no', 0):.2f}")
         
         if a.get('form_home'):
             fh = a['form_home']
@@ -449,13 +477,11 @@ def format_for_telegram(analyses, express_list=None, systems_list=None):
         lines.append("=" * 40)
         lines.append("🎰 <b>ЭКСПРЕССЫ</b>")
         lines.append("=" * 40)
-        for i, exp in enumerate(express_list[:3], 1):
+        for i, exp in enumerate(express_list, 1):
             lines.append(f"\n<b>Экспресс #{i}</b> ({exp['size']} событий) | {exp['risk']}")
             lines.append(f"💰 Итоговый кэф: <b>{exp['total_odd']:.2f}</b>")
-            lines.append(f"📊 Средний score: {exp['avg_score']:.0f}")
             for j, (match, bet) in enumerate(zip(exp['matches'], exp['bets']), 1):
-                lines.append(f"  {j}. {match}")
-                lines.append(f"     → {bet}")
+                lines.append(f"  {j}. {match} → {bet}")
             lines.append("")
     
     if systems_list:
@@ -466,7 +492,6 @@ def format_for_telegram(analyses, express_list=None, systems_list=None):
             lines.append(f"\n<b>{sys['name']}</b>")
             lines.append(f"📋 Комбинаций: {sys['combos']} | Стоимость: {sys['cost']} ед.")
             lines.append(f"💰 Макс. выплата: {sys['max_payout']:.2f}")
-            lines.append(f"📊 Средняя выплата: {sys['avg_payout']:.2f}")
             lines.append(f"📈 Ожидаемый ROI: {sys['expected_roi']:+.0f}%")
             lines.append("События:")
             for j, (match, bet) in enumerate(zip(sys['events'], sys['bets']), 1):
@@ -476,46 +501,56 @@ def format_for_telegram(analyses, express_list=None, systems_list=None):
     return "\n".join(lines)
 
 if __name__ == "__main__":
-    test_text = """Live
-
-Основные
-Футбол
-Квинсленд, Премьер Лига 1Австралия
-1
-Сент-Джордж Уиллавонг
-Норд Стар
-0
-0
-0
-0
-2.70
-3.40
-2.35
-Тотал 2.5
-1.85
+    test_text = """Нортерн Тайгерс
+Далвич Хилл
+10
+10
+1.48
+М3.5Б
+2.39
+1Т 33'
++69
+Кантербери Банкстоун
+Централ Коаст Маринерс (мол)
+00
+00
+1.70
+М3.5Б
+2.00
+1Т 1'
++69
+Херствиль
+Хиллс Юнайтед Брамбис
+00
+00
 1.95
-Фора1(-1)
-4.50
-1.35
-Обе забьют
+М2.5Б
 1.75
-2.05
-Точный счёт
-1:0
-7.50
-2:1
-9.00
-1:1
-6.50
-1Т 19'
-+69"""
+1Т 7'
++69
+Интер Лайонс
+Ньюкасл Джетс (мол)
+00
+00
+1.54
+М3.5Б
+2.26"""
     
     matches = parse_bookmaker_text(test_text)
-    print(f"✅ Найдено {len(matches)} матчей:\n")
+    print(f"\n✅ Найдено {len(matches)} матчей:\n")
+    print("=" * 60)
     for m in matches:
-        inv = 1/m['h_odd'] + 1/m['d_odd'] + 1/m['a_odd']
-        margin = (inv - 1) * 100
         print(f"🏆 {m['league']}")
         print(f"⚽ {m['home']} vs {m['away']}")
-        print(f"💰 1X2: {m['h_odd']}/{m['d_odd']}/{m['a_odd']} | Маржа: {margin:.1f}%")
-        print(f"📊 Рынки: {m.get('markets', {})}\n")
+        if m['h_odd'] and m['d_odd'] and m['a_odd']:
+            print(f"💰 1X2: {m['h_odd']}/{m['d_odd']}/{m['a_odd']}")
+        elif m['h_odd']:
+            print(f"💰 Кэф: {m['h_odd']}")
+        totals = m.get('markets', {}).get('totals', {})
+        if totals:
+            for v, d in totals.items():
+                parts = []
+                if "over" in d: parts.append(f"ТБ {d['over']:.2f}")
+                if "under" in d: parts.append(f"ТМ {d['under']:.2f}")
+                print(f"📊 Тотал {v}: {' | '.join(parts)}")
+        print("-" * 60)
