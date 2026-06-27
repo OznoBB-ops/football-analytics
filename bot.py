@@ -42,6 +42,7 @@ def send_welcome(message):
 
 📋 *Анализ линии БК:*
 /analyze — пришли текст с кэфами
+/fonbet URL — парсить ссылку Fonbet
 
 💰 *Учёт ставок (P&L):*
 /bet — добавить ставку
@@ -68,10 +69,44 @@ def send_welcome(message):
 
 @bot.message_handler(commands=['digest'])
 def send_daily_digest(message):
-    """Отправляет дневной дайджест"""
     recs = generate_daily_digest()
     digest = format_digest(recs)
     bot.send_message(message.chat.id, digest, parse_mode='Markdown')
+
+@bot.message_handler(commands=['fonbet'])
+def handle_fonbet_url(message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.send_message(message.chat.id, 
+            "Использование: /fonbet URL\n"
+            "Пример: /fonbet https://fon.bet/sports/football/136181/65192113")
+        return
+    
+    url = args[1].strip()
+    
+    if 'fon.bet' not in url and 'fonbet' not in url:
+        bot.send_message(message.chat.id, "❌ Это не ссылка на Fonbet")
+        return
+    
+    bot.send_message(message.chat.id, f"🔍 Парсю {url}...")
+    
+    try:
+        from fonbet_parser import parse_fonbet_url
+        result = parse_fonbet_url(url)
+        
+        if result and result['home']:
+            text = f"✅ {result['home']} vs {result['away']}\n"
+            if result['h_odd']:
+                text += f"💰 1X2: {result['h_odd']}/{result['d_odd']}/{result['a_odd']}"
+            bot.send_message(message.chat.id, text)
+        else:
+            bot.send_message(message.chat.id, 
+                "❌ Fonbet блокирует автоматический доступ\n\n"
+                "Альтернативы:\n"
+                "1. Используйте Winline или GGTBET\n"
+                "2. Сохраните страницу как HTML")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
 
 @bot.message_handler(commands=['bet'])
 def start_bet(message):
@@ -319,78 +354,5 @@ def search_match(message):
     text += f"📈 ТБ 2.5: {over25:.0f}% | ОЗ: {btts:.0f}% | Средний тотал: {sum(totals)/total:.1f}"
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
-
-@bot.message_handler(commands=['fonbet'])
-def handle_fonbet_url(message):
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.send_message(message.chat.id, 
-            "Использование: /fonbet URL\n"
-            "Пример: /fonbet https://fon.bet/sports/football/136181/65192113")
-        return
-    
-    url = args[1].strip()
-    
-    if 'fon.bet' not in url and 'fonbet' not in url:
-        bot.send_message(message.chat.id, "❌ Это не ссылка на Fonbet")
-        return
-    
-    bot.send_message(message.chat.id, f"🔍 Парсю {url}...")
-    
-    try:
-        from fonbet_parser import parse_fonbet_url
-        result = parse_fonbet_url(url)
-        
-        if result:
-            text = f"✅ {result['home']} vs {result['away']}\n"
-            if result['h_odd']:
-                text += f"💰 1X2: {result['h_odd']}/{result['d_odd']}/{result['a_odd']}"
-            bot.send_message(message.chat.id, text)
-        else:
-            bot.send_message(message.chat.id, 
-                "❌ Не удалось получить данные\n\n"
-                "Fonbet блокирует автоматический доступ.\n"
-                "Альтернативы:\n"
-                "1. Используйте Winline или GGTBET (они дают копировать)\n"
-                "2. Сохраните страницу Fonbet как HTML и отправьте файл")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
-
-
 print("🤖 Бот запущен...")
 bot.infinity_polling()
-
-@bot.message_handler(commands=['fonbet'])
-def handle_fonbet_url(message):
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.send_message(message.chat.id, 
-            "Использование: /fonbet URL\n"
-            "Пример: /fonbet https://fon.bet/sports/football/136181/65192113")
-        return
-    
-    url = args[1].strip()
-    
-    if 'fon.bet' not in url and 'fonbet' not in url:
-        bot.send_message(message.chat.id, "❌ Это не ссылка на Fonbet")
-        return
-    
-    bot.send_message(message.chat.id, f"🔍 Парсю {url}...")
-    
-    try:
-        from fonbet_parser import parse_fonbet_url
-        result = parse_fonbet_url(url)
-        
-        if result and result['home']:
-            text = f"✅ {result['home']} vs {result['away']}\n"
-            if result['h_odd']:
-                text += f"💰 1X2: {result['h_odd']}/{result['d_odd']}/{result['a_odd']}"
-            bot.send_message(message.chat.id, text)
-        else:
-            bot.send_message(message.chat.id, 
-                "❌ Fonbet блокирует автоматический доступ\n\n"
-                "Альтернативы:\n"
-                "1. Используйте Winline или GGTBET\n"
-                "2. Сохраните страницу как HTML")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
