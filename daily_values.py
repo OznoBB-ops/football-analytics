@@ -51,7 +51,7 @@ def load_matches():
                 except: pass
     return matches
 
-def find_patterns(matches, min_sample=30):
+def find_patterns(matches, min_sample=30, min_edge=10):
     ranges = {}
     for m in matches:
         if m['h_odd'] and m['d_odd'] and m['a_odd'] and m['h_odd']>1 and m['res']:
@@ -89,7 +89,7 @@ def send_telegram(text):
 
 def main():
     matches = load_matches()
-    patterns = find_patterns(matches, min_sample=30)
+    patterns = find_patterns(matches, min_sample=30, min_edge=10)
     
     msg = f"⚽ <b>Daily Report</b> {datetime.now().strftime('%d.%m.%Y')}\n"
     msg += f"📊 База: {len(matches)} матчей | Паттерны: {len(patterns)}\n\n"

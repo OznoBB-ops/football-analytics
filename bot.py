@@ -185,9 +185,9 @@ def send_values(message):
         dw = sum(1 for m in group if m['res']=='D')/len(group)*100
         aw = sum(1 for m in group if m['res']=='A')/len(group)*100
         
-        if hw - fh > 5: values.append(f"🎯 П1 @ {h:.1f} (fair {fh:.0f}% → real {hw:.0f}%) N={len(group)}")
-        if dw - fd > 5: values.append(f"🎯 Ничья @ {d:.1f} (fair {fd:.0f}% → real {dw:.0f}%) N={len(group)}")
-        if aw - fa > 5: values.append(f" П2 @ {a:.1f} (fair {fa:.0f}% → real {aw:.0f}%) N={len(group)}")
+        if hw - fh >= 10: values.append(f"🎯 П1 @ {h:.1f} (fair {fh:.0f}% → real {hw:.0f}%) N={len(group)}")
+        if dw - fd >= 10: values.append(f"🎯 Ничья @ {d:.1f} (fair {fd:.0f}% → real {dw:.0f}%) N={len(group)}")
+        if aw - fa >= 10: values.append(f" П2 @ {a:.1f} (fair {fa:.0f}% → real {aw:.0f}%) N={len(group)}")
     
     if not values:
         bot.send_message(message.chat.id, "❌ Валуйных паттернов не найдено")
