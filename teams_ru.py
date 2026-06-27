@@ -252,3 +252,26 @@ def translate_team(name):
 def translate_match(home, away):
     """Переводит названия обеих команд"""
     return translate_team(home), translate_team(away)
+
+# Австралия
+TEAMS_RU.update({
+    'пенинсула пауэр': 'Пенинсула Пауэр',
+    'брисбен роар (мол)': 'Брисбен Роар мол.',
+    'брисбен роар': 'Брисбен Роар',
+    'нортерн тайгерс': 'Нортерн Тайгерс',
+    'далвич хилл': 'Далвич Хилл',
+    'нсу университи': 'НСВ Университи',
+    'сазерленд шаркс': 'Сазерленд Шаркс',
+    'gold coast knights': 'Голд Кост Найтс',
+    'moreton city excelsior': 'Мортон Сити',
+    'olympic fc': 'Олимпик ФК',
+    'brisbane city': 'Брисбен Сити',
+    'redlands united': 'Редлендс Юнайтед',
+    'western pride': 'Вестерн Прайд',
+    'sunshine coast wanderers': 'Саншайн Кост',
+    'capalaba fc': 'Капалаба ФК',
+    'eastern suburbs': 'Истерн Сабёрбс',
+    'brisbane strikers': 'Брисбен Страйкерс',
+    'ipswich knights': 'Ипсвич Найтс',
+    'magic united tigers': 'Мэджик Юнайтед',
+})
