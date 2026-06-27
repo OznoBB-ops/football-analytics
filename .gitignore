@@ -1,3 +1,7 @@
-bot.log
+__pycache__/
+*.pyc
 .env
 .streamlit/secrets.toml
+pnl.json
+*.txt
+netlify.toml
