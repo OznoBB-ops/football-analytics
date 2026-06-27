@@ -4,6 +4,7 @@ import csv
 from datetime import datetime
 from itertools import combinations
 from teams_ru import translate_team
+from motivation import analyze_motivation
 from predictor import calculate_expected_goals, predict_exact_scores, predict_outcomes, find_value_bets
 
 JUNK = [
@@ -245,6 +246,9 @@ def analyze_match(match, all_matches, patterns):
     if home_in_base and away_in_base:
         result['h2h'] = analyze_h2h(all_matches, home_in_base, away_in_base)
     
+    # Мотивация команд
+    result['motivation'] = analyze_motivation(all_matches, match['home'], match['away'])
+    
     if form_home or form_away:
         xg = calculate_expected_goals(form_home, form_away, result['h2h'])
         result['xg'] = xg
@@ -299,6 +303,20 @@ def analyze_match(match, all_matches, patterns):
                 recs.append({'bet': f"ТБ 2.5 @ {t['over']:.2f}", 'reason': f"⚔️ H2H ТБ {result['h2h']['over25_pct']:.0f}%", 'score': 25, 'odd': t['over']})
             elif result['h2h']['over25_pct'] < 40 and 'under' in t:
                 recs.append({'bet': f"ТМ 2.5 @ {t['under']:.2f}", 'reason': f"⚔️ H2H ТМ {100-result['h2h']['over25_pct']:.0f}%", 'score': 25, 'odd': t['under']})
+    
+    # Мотивация влияет на score
+    if result.get('motivation'):
+        mot = result['motivation']
+        # Если хозяева сильно мотивированы — усиливаем П1
+        if mot['home_motivation'] >= 70 and any('П1' in r['bet'] for r in recs):
+            for r in recs:
+                if 'П1' in r['bet']:
+                    r['score'] += 10
+        # Если гости сильно мотивированы — усиливаем П2
+        if mot['away_motivation'] >= 70 and any('П2' in r['bet'] for r in recs):
+            for r in recs:
+                if 'П2' in r['bet']:
+                    r['score'] += 10
     
     recs.sort(key=lambda x: x['score'], reverse=True)
     result['recommendations'] = recs[:5]
@@ -462,6 +480,17 @@ def format_for_telegram(analyses, express_list=None, systems_list=None):
         if a.get('h2h') and a['h2h']['matches'] >= 2:
             h = a['h2h']
             lines.append(f"⚔️ H2H: {h['matches']} матчей | ТБ2.5: {h['over25_pct']:.0f}% | ОЗ: {h['btts_pct']:.0f}%")
+        
+        # Мотивация
+        if a.get('motivation'):
+            mot = a['motivation']
+            lines.append(f"🔥 Мотивация: 🏠 {mot['home_motivation']}/100 | ✈️ {mot['away_motivation']}/100")
+            lines.append(f"   🏠 #{mot['home_position']}/{mot['total_teams']} | ✈️ #{mot['away_position']}/{mot['total_teams']}")
+            if mot['home_factors'] or mot['away_factors']:
+                for f in mot['home_factors'][:2]:
+                    lines.append(f"   • {f}")
+                for f in mot['away_factors'][:2]:
+                    lines.append(f"   • {f}")
         elif not a['in_base']:
             lines.append("⚠️ Команды не найдены в базе")
         
