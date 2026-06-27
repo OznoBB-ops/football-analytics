@@ -15,8 +15,8 @@ TRACKED_FILE = 'tracked.json'
 
 def load_matches():
     matches = []
-    files = ['RUS.csv','FIN.csv','POL.csv','P1.csv','E0.csv','E1.csv',
-             'D1.csv','SP1.csv','I1.csv','N1.csv','B1.csv','TU1.csv','SC1.csv','G1.csv']
+    # Только рабочие лиги
+    files = ['FIN.csv', 'POL.csv']
     
     for fname in files:
         if not os.path.exists(fname): continue
@@ -25,7 +25,6 @@ def load_matches():
             header = f.readline().strip().split(',')
             if not header: continue
             idx = {h.strip(): i for i, h in enumerate(header)}
-            
             if 'HomeTeam' in idx:
                 hi, ai, ri = idx.get('HomeTeam'), idx.get('AwayTeam'), idx.get('FTR')
                 bh, bd, ba = idx.get('B365H'), idx.get('B365D'), idx.get('B365A')
@@ -35,9 +34,7 @@ def load_matches():
             else:
                 hi, ai, ri = 5, 6, 9
                 bh, bd, ba = 10, 11, 12
-            
             if hi is None or ai is None or ri is None: continue
-            
             for line in f:
                 p = line.strip().split(',')
                 if len(p) <= max(hi, ai, ri): continue
@@ -55,7 +52,7 @@ def load_matches():
     return matches
 
 MATCHES = load_matches()
-print(f"✅ Загружено {len(MATCHES)} матчей")
+print(f"✅ Загружено {len(MATCHES)} матчей (FIN + POL)")
 
 def load_tracked():
     if os.path.exists(TRACKED_FILE):
@@ -70,28 +67,57 @@ def save_tracked(data):
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     text = """
-⚽ *Football Analyzer*
+⚽ *Football Analyzer (FIN + POL)*
 
 🔍 *Поиск матча:*
-Напиши две команды: `Zenit Spartak`
+Напиши две команды: `HJK Helsinki vs KuPS`
 
 📌 *Подписки:*
-/track Zenit — следить за командой
-/untrack Zenit — отписаться
+/track HJK — следить за командой
+/untrack HJK — отписаться
 /tracked — список твоих команд
 /check — отчет по последним матчам
 
- *Аналитика:*
-/values — исторические валуи
-/stats Zenit — статистика команды
+📊 *Аналитика:*
+/values — валуи (edge >= 10%)
+/stats HJK — статистика команды
 """
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+
+@bot.message_handler(commands=['values'])
+def send_values(message):
+    ranges = {}
+    for m in MATCHES:
+        if m['h_odd'] and m['d_odd'] and m['a_odd'] and m['h_odd'] > 1 and m['res']:
+            key = (round(m['h_odd'], 1), round(m['d_odd'], 1), round(m['a_odd'], 1))
+            if key not in ranges: ranges[key] = []
+            ranges[key].append(m)
+    
+    values = []
+    for (h, d, a), group in ranges.items():
+        if len(group) < 30: continue
+        inv = 1/h + 1/d + 1/a
+        fh = (1/h/inv)*100; fd = (1/d/inv)*100; fa = (1/a/inv)*100
+        hw = sum(1 for m in group if m['res']=='H')/len(group)*100
+        dw = sum(1 for m in group if m['res']=='D')/len(group)*100
+        aw = sum(1 for m in group if m['res']=='A')/len(group)*100
+        
+        if hw - fh >= 10: values.append(f"🎯 П1 @ {h:.1f} (fair {fh:.0f}% → real {hw:.0f}%) N={len(group)}")
+        if dw - fd >= 10: values.append(f"🎯 Ничья @ {d:.1f} (fair {fd:.0f}% → real {dw:.0f}%) N={len(group)}")
+        if aw - fa >= 10: values.append(f" П2 @ {a:.1f} (fair {fa:.0f}% → real {aw:.0f}%) N={len(group)}")
+    
+    if not values:
+        bot.send_message(message.chat.id, "❌ Валуйных паттернов не найдено")
+        return
+    
+    text = " *Топ валуи (FIN + POL, edge >= 10%):*\n\n" + "\n".join(values[:15])
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['track'])
 def track_team(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        bot.send_message(message.chat.id, "Используй: /track zenit")
+        bot.send_message(message.chat.id, "Используй: /track hjk")
         return
     
     team = args[1].strip().lower()
@@ -107,7 +133,7 @@ def track_team(message):
     
     exists = any(team in m['home'] or team in m['away'] for m in MATCHES)
     if not exists:
-        bot.send_message(message.chat.id, f"❌ Команда '{team}' не найдена в базе")
+        bot.send_message(message.chat.id, f"❌ Команда '{team}' не найдена в FIN/POL")
         return
     
     tracked[user_id].append(team)
@@ -118,7 +144,7 @@ def track_team(message):
 def untrack_team(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        bot.send_message(message.chat.id, "Используй: /untrack zenit")
+        bot.send_message(message.chat.id, "Используй: /untrack hjk")
         return
     
     team = args[1].strip().lower()
@@ -167,47 +193,18 @@ def check_tracked(message):
     
     bot.send_message(message.chat.id, report, parse_mode='HTML')
 
-@bot.message_handler(commands=['values'])
-def send_values(message):
-    ranges = {}
-    for m in MATCHES:
-        if m['h_odd'] and m['d_odd'] and m['a_odd'] and m['h_odd'] > 1 and m['res']:
-            key = (round(m['h_odd'], 1), round(m['d_odd'], 1), round(m['a_odd'], 1))
-            if key not in ranges: ranges[key] = []
-            ranges[key].append(m)
-    
-    values = []
-    for (h, d, a), group in ranges.items():
-        if len(group) < 20: continue
-        inv = 1/h + 1/d + 1/a
-        fh = (1/h/inv)*100; fd = (1/d/inv)*100; fa = (1/a/inv)*100
-        hw = sum(1 for m in group if m['res']=='H')/len(group)*100
-        dw = sum(1 for m in group if m['res']=='D')/len(group)*100
-        aw = sum(1 for m in group if m['res']=='A')/len(group)*100
-        
-        if hw - fh >= 10: values.append(f"🎯 П1 @ {h:.1f} (fair {fh:.0f}% → real {hw:.0f}%) N={len(group)}")
-        if dw - fd >= 10: values.append(f"🎯 Ничья @ {d:.1f} (fair {fd:.0f}% → real {dw:.0f}%) N={len(group)}")
-        if aw - fa >= 10: values.append(f" П2 @ {a:.1f} (fair {fa:.0f}% → real {aw:.0f}%) N={len(group)}")
-    
-    if not values:
-        bot.send_message(message.chat.id, "❌ Валуйных паттернов не найдено")
-        return
-    
-    text = " *Топ валуи из истории:*\n\n" + "\n".join(values[:15])
-    bot.send_message(message.chat.id, text, parse_mode='Markdown')
-
 @bot.message_handler(commands=['stats'])
 def send_stats(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        bot.send_message(message.chat.id, "Используй: /stats zenit")
+        bot.send_message(message.chat.id, "Используй: /stats hjk")
         return
     
     team = args[1].strip().lower()
     team_matches = [m for m in MATCHES if team in m['home'] or team in m['away']]
     
     if not team_matches:
-        bot.send_message(message.chat.id, f"❌ Команда '{team}' не найдена")
+        bot.send_message(message.chat.id, f"❌ Команда '{team}' не найдена в FIN/POL")
         return
     
     total = len(team_matches)
@@ -222,14 +219,14 @@ def send_stats(message):
         elif m['res']=='D': form += "⚪"
         else: form += "❌"
     
-    text = f"📊 *{team.upper()}*\nВсего матчей: {total}\nПобед: {wins} ({wins/total*100:.0f}%)\nНичьих: {draws} ({draws/total*100:.0f}%)\nПоражений: {losses} ({losses/total*100:.0f}%)\n\nФорма (5): {form}"
+    text = f"📊 *{team.upper()}* (FIN/POL)\nВсего матчей: {total}\nПобед: {wins} ({wins/total*100:.0f}%)\nНичьих: {draws} ({draws/total*100:.0f}%)\nПоражений: {losses} ({losses/total*100:.0f}%)\n\nФорма (5): {form}"
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda m: True)
 def search_match(message):
     parts = message.text.strip().split()
     if len(parts) < 2:
-        bot.send_message(message.chat.id, "Напиши две команды: `Zenit Spartak`", parse_mode='Markdown')
+        bot.send_message(message.chat.id, "Напиши две команды: `HJK KuPS`", parse_mode='Markdown')
         return
     
     h2h = []
@@ -239,7 +236,7 @@ def search_match(message):
         if home_in and away_in: h2h.append(m)
     
     if not h2h:
-        bot.send_message(message.chat.id, f"❌ Личных встреч не найдено.")
+        bot.send_message(message.chat.id, f"❌ Личных встреч не найдено в FIN/POL")
         return
     
     total = len(h2h)
@@ -247,7 +244,7 @@ def search_match(message):
     aw = sum(1 for m in h2h if (m['home']==h2h[0]['away'] and m['res']=='H') or (m['away']==h2h[0]['away'] and m['res']=='A'))
     dr = sum(1 for m in h2h if m['res']=='D')
     
-    text = f"🔍 *{h2h[0]['home'].title()} vs {h2h[0]['away'].title()}*\nЛичных встреч: {total}\n\n📊 П1: {hw/total*100:.0f}% ({hw})\n⚪ Ничья: {dr/total*100:.0f}% ({dr})\n📊 П2: {aw/total*100:.0f}% ({aw})"
+    text = f"🔍 *{h2h[0]['home'].title()} vs {h2h[0]['away'].title()}* (FIN/POL)\nЛичных встреч: {total}\n\n📊 П1: {hw/total*100:.0f}% ({hw})\n⚪ Ничья: {dr/total*100:.0f}% ({dr})\n📊 П2: {aw/total*100:.0f}% ({aw})"
     
     odds = [m for m in h2h if m['h_odd'] and m['h_odd'] > 1]
     if odds:
@@ -259,5 +256,5 @@ def search_match(message):
     
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
-print("🤖 Бот запущен...")
+print("🤖 Бот запущен (FIN + POL only)...")
 bot.infinity_polling()

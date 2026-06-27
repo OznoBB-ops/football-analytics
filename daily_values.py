@@ -3,7 +3,6 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Загружаем переменные из .env
 load_dotenv()
 
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -11,8 +10,9 @@ CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 def load_matches():
     matches = []
-    files = ['RUS.csv','FIN.csv','POL.csv','P1.csv','E0.csv','E1.csv',
-             'D1.csv','SP1.csv','I1.csv','N1.csv','B1.csv','TU1.csv','SC1.csv','G1.csv']
+    # Только рабочие лиги
+    files = ['FIN.csv', 'POL.csv']
+    
     for fname in files:
         if not os.path.exists(fname): continue
         league = fname.replace('.csv','')
@@ -66,14 +66,34 @@ def find_patterns(matches, min_sample=30, min_edge=10):
         hw = sum(1 for m in group if m['res']=='H')/len(group)*100
         dw = sum(1 for m in group if m['res']=='D')/len(group)*100
         aw = sum(1 for m in group if m['res']=='A')/len(group)*100
-        if hw - fh > 5:
+        if hw - fh >= min_edge:
             patterns.append({'range':(h,d,a),'bet':'П1','odds':h,'fair':fh,'real':hw,'edge':hw-fh,'roi':(hw/100*h-1)*100,'n':len(group)})
-        if dw - fd > 5:
+        if dw - fd >= min_edge:
             patterns.append({'range':(h,d,a),'bet':'Ничья','odds':d,'fair':fd,'real':dw,'edge':dw-fd,'roi':(dw/100*d-1)*100,'n':len(group)})
-        if aw - fa > 5:
+        if aw - fa >= min_edge:
             patterns.append({'range':(h,d,a),'bet':'П2','odds':a,'fair':fa,'real':aw,'edge':aw-fa,'roi':(aw/100*a-1)*100,'n':len(group)})
     patterns.sort(key=lambda x: x['roi'], reverse=True)
     return patterns
+
+def find_future_values(matches, patterns, tolerance=0.15):
+    future = [m for m in matches if not m['res'] and m['h_odd'] and m['d_odd'] and m['a_odd']]
+    values = []
+    for m in future:
+        h,d,a = m['h_odd'], m['d_odd'], m['a_odd']
+        for p in patterns:
+            ph,pd,pa = p['range']
+            if abs(h-ph) <= tolerance and abs(d-pd) <= tolerance and abs(a-pa) <= tolerance:
+                values.append({
+                    'match': f"{m['home']} vs {m['away']}",
+                    'date': m['date'],
+                    'league': m['league'],
+                    'bet': p['bet'],
+                    'odds': {'П1':h,'Ничья':d,'П2':a}[p['bet']],
+                    'edge': p['edge'],
+                    'roi': p['roi']
+                })
+    values.sort(key=lambda x: x['roi'], reverse=True)
+    return values
 
 def send_telegram(text):
     if not BOT_TOKEN or not CHAT_ID: 
@@ -90,19 +110,30 @@ def send_telegram(text):
 def main():
     matches = load_matches()
     patterns = find_patterns(matches, min_sample=30, min_edge=10)
+    future_values = find_future_values(matches, patterns, tolerance=0.15)
     
-    msg = f"⚽ <b>Daily Report</b> {datetime.now().strftime('%d.%m.%Y')}\n"
+    msg = f"⚽ <b>Daily Report (FIN + POL)</b> {datetime.now().strftime('%d.%m.%Y')}\n"
     msg += f"📊 База: {len(matches)} матчей | Паттерны: {len(patterns)}\n\n"
     
-    msg += "<b>Топ исторических паттернов:</b>\n"
+    if future_values:
+        msg += f"🎯 <b>Валуи на будущие матчи:</b>\n"
+        for i, v in enumerate(future_values[:10], 1):
+            emoji = "🟢" if v['roi']>15 else "🟡"
+            msg += f"{emoji} #{i} {v['date']} {v['league']}\n"
+            msg += f"   {v['match']}\n"
+            msg += f"   {v['bet']} @ {v['odds']:.2f} | Edge +{v['edge']:.1f}% | ROI {v['roi']:+.0f}%\n\n"
+    else:
+        msg += "⚠️ <b>Будущих матчей с кэфами пока нет</b>\n\n"
+    
+    msg += "<b>Топ паттернов (FIN + POL):</b>\n"
     for i, p in enumerate(patterns[:5], 1):
-        emoji = "🟢" if p['roi']>20 else "🟡"
+        emoji = "🟢" if p['roi']>15 else "🟡"
         msg += f"{emoji} #{i} {p['bet']} @ {p['odds']:.1f} | ROI {p['roi']:+.0f}% | N={p['n']}\n"
     
     if send_telegram(msg):
         print("✅ Отправлено")
     else:
-        print(" Не отправлено")
+        print("❌ Не отправлено")
 
 if __name__ == "__main__":
     main()
