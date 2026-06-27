@@ -1,0 +1,13 @@
+[build]
+  command = "echo 'Skip build'"
+  publish = "."
+
+[build.processing]
+  skip_processing = true
+
+[context.production]
+  command = "echo 'Production build'"
+
+[context.deploy-preview]
+  publish = "."
+  command = "echo 'Skip preview'"

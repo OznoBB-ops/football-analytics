@@ -1,0 +1,16 @@
+{
+  "bets": [
+    {
+      "id": 1,
+      "date": "2026-06-27 11:58",
+      "match": "Зенит Спартак",
+      "bet_type": "П1",
+      "odds": 2.1,
+      "stake": 300.0,
+      "status": "won",
+      "profit": 330.0,
+      "league": "N/A"
+    }
+  ],
+  "next_id": 2
+}
