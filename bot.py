@@ -3,7 +3,10 @@ import os
 import json
 from dotenv import load_dotenv
 from teams_ru import translate_team
-from bookmaker_parser import parse_bookmaker_text, save_to_base, analyze_match, format_for_telegram
+from bookmaker_parser import (
+    parse_bookmaker_text, save_to_base, analyze_match, 
+    format_for_telegram, generate_express, generate_systems
+)
 from recommendations import load_matches, find_patterns
 
 load_dotenv()
@@ -39,6 +42,8 @@ def send_welcome(message):
 
 📋 *Анализ линии БК:*
 /analyze — пришли текст с кэфами
+Я распарсю 1X2, тоталы, форы, ОЗ
++ рекомендации по экспрессам и системам
 
 🔍 *Поиск матча:*
 Напиши две команды: `Зенит Спартак`
@@ -59,6 +64,8 @@ def start_analyze(message):
     bot.send_message(message.chat.id,
         "📋 *Режим анализа БК*\n\n"
         "Пришли текст со страницы БК.\n"
+        "Парсю: 1X2, тоталы, форы, ОЗ\n"
+        "+ экспрессы и системы\n\n"
         "❌ Отмена: /cancel",
         parse_mode='Markdown')
 
@@ -78,7 +85,12 @@ def handle_bookmaker_text(message):
     
     saved = save_to_base(matches)
     analyses = [analyze_match(m, MATCHES, PATTERNS) for m in matches]
-    result = format_for_telegram(analyses)
+    
+    # Генерируем экспрессы и системы
+    express_list = generate_express(analyses, min_matches=2, max_matches=4) if len(analyses) >= 2 else None
+    systems_list = generate_systems(analyses) if len(analyses) >= 3 else None
+    
+    result = format_for_telegram(analyses, express_list, systems_list)
     result = f"📋 <b>{len(matches)} матчей</b> (сохранено: {saved})\n\n" + result
     
     # Разбиваем если длинно
