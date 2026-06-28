@@ -16,8 +16,9 @@ LEAGUE_NAMES = {
 }
 
 def load_matches():
+    import glob
     matches = []
-    for fname in LEAGUE_FILES:
+    for fname in glob.glob('[A-Z][A-Z0-9]*.csv'):
         if not os.path.exists(fname): continue
         league = fname.replace('.csv','')
         with open(fname, 'r', encoding='utf-8', errors='ignore') as f:
